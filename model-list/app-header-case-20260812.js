@@ -1097,7 +1097,7 @@ function delay(ms) {
 function friendlyError(error) {
   const message = error instanceof Error ? error.message : String(error);
   if (/failed to fetch|load failed|network/i.test(message)) {
-    return "Browser request was blocked, the network is unavailable, or the edge timed out before the API returned CORS headers. Use Check endpoint to verify OPTIONS/CORS from this page.";
+    return "Browser request was blocked or the network is unavailable. Video generation uses an asynchronous job, so a long model run should not hold the POST connection open. Use Check endpoint to verify OPTIONS/CORS from this page.";
   }
   return message;
 }
@@ -1121,7 +1121,7 @@ async function endpointDiagnostic(request) {
       return [
         `OPTIONS/CORS check passed in ${elapsed}s with HTTP ${response.status}.`,
         "This page origin can reach the selected endpoint preflight.",
-        "If a long video POST still fails as a browser network error, the likely cause is an edge/proxy timeout before the synchronous MP4 response is ready, not a missing CORS rule."
+        "Video requests return a job id and are polled asynchronously, so 2K and long-duration generations do not depend on one long-lived browser request."
       ].join("\n");
     }
     return [
@@ -1596,11 +1596,14 @@ async function waitForVideoJob(json, model) {
 
   const startedAt = Date.now();
   let attempt = 1;
+  localStorage.setItem("freyr-video-job", JSON.stringify({ id: current.id, model: model.id, createdAt: Date.now() }));
   while (Date.now() - startedAt < MEDIA_POLL_TIMEOUT_MS) {
     setRunStatus(`Generating... checking video job (${attempt})`, "busy");
     setResult(generationMessage(mediaGenerationStatusDetail(current, [])));
     await delay(MEDIA_POLL_INTERVAL_MS);
-    current = await fetchJson(`${endpointUrl(model)}/${encodeURIComponent(current.id)}`, {
+    const statusUrl = new URL(`${endpointUrl(model)}/${encodeURIComponent(current.id)}`);
+    statusUrl.searchParams.set("model", model.id);
+    current = await fetchJson(statusUrl.href, {
       headers: playgroundHeaders(false),
       cache: "no-store"
     });
@@ -1609,6 +1612,7 @@ async function waitForVideoJob(json, model) {
       throw new Error(`Video generation ${status}: ${JSON.stringify(current.error || current)}`);
     }
     if (/complete|completed|succeeded|success/i.test(status)) {
+      localStorage.removeItem("freyr-video-job");
       return withDerivedVideoOutput(current, model);
     }
     attempt += 1;
