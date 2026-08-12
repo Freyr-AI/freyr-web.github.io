@@ -302,7 +302,7 @@ def build(output_root: Path) -> list[NewsItem]:
     for filename in ("styles.css", "script.js", "README.md", "CNAME"):
         shutil.copy2(PROJECT_ROOT / filename, output_root / filename)
     shutil.copytree(PROJECT_ROOT / "public", output_root / "public")
-    for directory in ("about", "business", "investors"):
+    for directory in ("about", "business", "investors", "model-list"):
         shutil.copytree(PROJECT_ROOT / directory, output_root / directory)
 
     sources = sorted(
