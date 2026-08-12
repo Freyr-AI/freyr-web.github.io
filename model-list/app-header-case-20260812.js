@@ -1063,15 +1063,16 @@ function setRunStatus(message, type = "") {
   node.className = `run-status ${type}`.trim();
 }
 
-function setRunning(isRunning, message = "") {
+function setRunning(isRunning, message = "", busyButtonText = "Generating...") {
   state.running = isRunning;
   const button = $("#runPlayground");
   if (button) {
     button.disabled = isRunning;
-    button.textContent = isRunning ? "Generating..." : "Run request";
+    button.textContent = isRunning ? busyButtonText : "Run request";
     button.setAttribute("aria-busy", String(isRunning));
   }
   if ($("#resetPlayground")) $("#resetPlayground").disabled = isRunning;
+  if ($("#checkEndpoint")) $("#checkEndpoint").disabled = isRunning;
   if ($("#closePlayground")) $("#closePlayground").disabled = isRunning;
   if (message) setRunStatus(message, isRunning ? "busy" : "");
 }
@@ -1096,9 +1097,43 @@ function delay(ms) {
 function friendlyError(error) {
   const message = error instanceof Error ? error.message : String(error);
   if (/failed to fetch|load failed|network/i.test(message)) {
-    return "Browser request was blocked or the network is unavailable. Confirm that the API allows this page origin for OPTIONS and CORS on the selected endpoint.";
+    return "Browser request was blocked, the network is unavailable, or the edge timed out before the API returned CORS headers. Use Check endpoint to verify OPTIONS/CORS from this page.";
   }
   return message;
+}
+
+function isNetworkFetchError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /failed to fetch|load failed|network/i.test(message);
+}
+
+async function endpointDiagnostic(request) {
+  if (!request?.url) return "No request URL is available for this model.";
+  const startedAt = performance.now();
+  try {
+    const response = await fetch(request.url, {
+      method: "OPTIONS",
+      mode: "cors",
+      cache: "no-store"
+    });
+    const elapsed = ((performance.now() - startedAt) / 1000).toFixed(2);
+    if (response.ok || response.status === 204) {
+      return [
+        `OPTIONS/CORS check passed in ${elapsed}s with HTTP ${response.status}.`,
+        "This page origin can reach the selected endpoint preflight.",
+        "If a long video POST still fails as a browser network error, the likely cause is an edge/proxy timeout before the synchronous MP4 response is ready, not a missing CORS rule."
+      ].join("\n");
+    }
+    return [
+      `OPTIONS/CORS check reached the endpoint in ${elapsed}s but returned HTTP ${response.status}.`,
+      "Update the API gateway or Cloudflare rule so OPTIONS returns 204 with Access-Control-Allow-Origin for this page."
+    ].join("\n");
+  } catch (error) {
+    return [
+      "OPTIONS/CORS check failed from this page.",
+      friendlyError(error)
+    ].join("\n");
+  }
 }
 
 function textFromValue(value) {
@@ -1797,7 +1832,30 @@ async function runPlayground() {
     ].filter(Boolean).join(""));
   } catch (error) {
     setRunStatus("Failed", "error");
-    setResult(`<strong>Request failed</strong><pre>${escapeHtml(friendlyError(error))}</pre>`);
+    const diagnostic = isNetworkFetchError(error) ? await endpointDiagnostic(request) : "";
+    setResult([
+      `<strong>Request failed</strong><pre>${escapeHtml(friendlyError(error))}</pre>`,
+      diagnostic ? `<strong>Endpoint check</strong><pre>${escapeHtml(diagnostic)}</pre>` : ""
+    ].filter(Boolean).join(""));
+  } finally {
+    setRunning(false);
+  }
+}
+
+async function runEndpointCheck() {
+  if (state.running) return;
+  const request = buildRequest();
+  if (!request) return;
+
+  setRunning(true, "Checking endpoint...", "Checking...");
+  setResult(generationMessage("Checking endpoint reachability and CORS..."));
+  try {
+    const diagnostic = await endpointDiagnostic(request);
+    setRunStatus("Check complete", "complete");
+    setResult(`<strong>Endpoint check</strong><pre class="response-copy-content">${escapeHtml(diagnostic)}</pre>`);
+  } catch (error) {
+    setRunStatus("Check failed", "error");
+    setResult(`<strong>Endpoint check failed</strong><pre>${escapeHtml(friendlyError(error))}</pre>`);
   } finally {
     setRunning(false);
   }
@@ -1934,6 +1992,7 @@ function bindEvents() {
   });
 
   $("#runPlayground").addEventListener("click", runPlayground);
+  $("#checkEndpoint")?.addEventListener("click", runEndpointCheck);
   $("#resetPlayground").addEventListener("click", resetPlayground);
   $("#copyRequest").addEventListener("click", async () => {
     await navigator.clipboard?.writeText($("#requestPreview").textContent);
