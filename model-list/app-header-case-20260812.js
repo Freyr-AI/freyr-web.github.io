@@ -1111,26 +1111,28 @@ async function endpointDiagnostic(request) {
   if (!request?.url) return "No request URL is available for this model.";
   const startedAt = performance.now();
   try {
-    const response = await fetch(request.url, {
-      method: "OPTIONS",
+    const isVideoEndpoint = /\/v1\/videos\/?(?:\?|$)/.test(request.url);
+    const probeUrl = isVideoEndpoint
+      ? `${request.url.replace(/\/$/, "")}/cors-check?model=${encodeURIComponent(selectedModel()?.id || "")}`
+      : request.url;
+    const response = await fetch(probeUrl, {
+      // A browser-generated preflight is the useful CORS test. Sending an
+      // explicit OPTIONS request can itself require another preflight and can
+      // produce misleading failures through Cloudflare Access.
+      method: isVideoEndpoint ? "GET" : "HEAD",
+      headers: request.headers,
       mode: "cors",
       cache: "no-store"
     });
     const elapsed = ((performance.now() - startedAt) / 1000).toFixed(2);
-    if (response.ok || response.status === 204) {
-      return [
-        `OPTIONS/CORS check passed in ${elapsed}s with HTTP ${response.status}.`,
-        "This page origin can reach the selected endpoint preflight.",
-        "Video requests return a job id and are polled asynchronously, so 2K and long-duration generations do not depend on one long-lived browser request."
-      ].join("\n");
-    }
     return [
-      `OPTIONS/CORS check reached the endpoint in ${elapsed}s but returned HTTP ${response.status}.`,
-      "Update the API gateway or Cloudflare rule so OPTIONS returns 204 with Access-Control-Allow-Origin for this page."
+      `Browser preflight/CORS check passed in ${elapsed}s; endpoint returned HTTP ${response.status} to a non-generating probe.`,
+      "This page origin can reach and read the selected endpoint through Cloudflare Access.",
+      "Video requests return a job id and are polled asynchronously, so 2K and long-duration generations do not depend on one long-lived browser request."
     ].join("\n");
   } catch (error) {
     return [
-      "OPTIONS/CORS check failed from this page.",
+      "Browser preflight/CORS check failed from this page.",
       friendlyError(error)
     ].join("\n");
   }
