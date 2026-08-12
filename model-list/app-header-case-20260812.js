@@ -1573,7 +1573,9 @@ function mediaTypeForResponse(response, model) {
 }
 
 function numericResponseHeader(response, name) {
-  const value = Number(response.headers.get(name));
+  const rawValue = response.headers.get(name);
+  if (rawValue === null || rawValue.trim() === "") return null;
+  const value = Number(rawValue);
   return Number.isFinite(value) ? value : null;
 }
 
@@ -1587,10 +1589,12 @@ async function binaryMediaJson(response, model, mediaType) {
   const outputSeconds = numericResponseHeader(response, "x-freyr-output-seconds");
   const usageUnits = numericResponseHeader(response, "x-freyr-usage-units");
   const totalCost = numericResponseHeader(response, "x-freyr-total-cost");
+  const inferenceTimeSeconds = numericResponseHeader(response, "x-inference-time-s");
   const usage = objectWithValues({
     type: response.headers.get("x-freyr-usage-type") || mediaType,
     ...(outputSeconds === null ? {} : { output_seconds: outputSeconds }),
-    ...(usageUnits === null ? {} : { usage_units: usageUnits })
+    ...(usageUnits === null ? {} : { usage_units: usageUnits }),
+    ...(inferenceTimeSeconds === null ? {} : { inference_time_s: inferenceTimeSeconds })
   });
   const cost = objectWithValues(totalCost === null ? {} : { total_cost: totalCost });
 
