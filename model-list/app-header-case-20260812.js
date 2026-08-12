@@ -17,8 +17,19 @@ const MODEL_META = {
     displayName: "MiniMax H3",
     provider: "MiniMax",
     description: "MiniMax H3 video generation model served on the GB200 cluster.",
-    capabilities: ["video generation", "text-to-video"],
-    sizes: "Provider defined"
+    capabilities: ["reference-to-video", "image/video/audio reference", "synchronized audio"],
+    sizes: "768x432 default",
+    supportsReference: true,
+    requiresReference: true,
+    referenceLabel: "Reference file",
+    referenceAccept: "image/*,video/*,audio/*",
+    defaultVideoSize: "768x432",
+    defaultVideoFps: 24,
+    defaultVideoSeconds: 4,
+    defaultVideoSteps: 8,
+    usesVideoSeconds: true,
+    binaryResponseType: "video",
+    outputSlug: "minimax-h3"
   },
   "KimiK3-GB200-115": {
     category: "text",
@@ -588,32 +599,39 @@ function buildVideoRequest(model) {
   const body = {
     model: model.id,
     prompt: textValue("#promptInput"),
-    size: textValue("#videoSize", "512x512"),
-    fps: numberValue("#videoFps", 8),
-    num_frames: numberValue("#videoFrames", 9),
-    num_inference_steps: numberValue("#videoSteps", 1)
+    size: textValue("#videoSize", videoDefaultSize(model)),
+    fps: numberValue("#videoFps", videoDefaultFps(model)),
+    num_inference_steps: numberValue("#videoSteps", videoDefaultSteps(model))
   };
+  if (model.usesVideoSeconds) {
+    body.seconds = numberValue("#videoFrames", videoDefaultDurationValue(model));
+  } else {
+    body.num_frames = numberValue("#videoFrames", videoDefaultDurationValue(model));
+  }
   const file = model.supportsReference ? $("#referenceImage")?.files?.[0] : null;
-  if (!file) {
+  const shouldUseForm = Boolean(model.supportsReference && (file || model.requiresReference));
+  if (!shouldUseForm) {
     return {
       kind: "json",
       url: endpointUrl(model),
       method: "POST",
       headers: playgroundHeaders(true),
-      body
+      body,
+      responseType: model.binaryResponseType || ""
     };
   }
 
   const formData = new FormData();
   Object.entries(body).forEach(([key, value]) => formData.append(key, String(value)));
-  formData.append("input_reference", file);
+  if (file) formData.append("input_reference", file);
   return {
     kind: "form",
     url: endpointUrl(model),
     method: "POST",
     headers: playgroundHeaders(false),
     body: formData,
-    previewBody: { ...body, input_reference: file.name }
+    previewBody: { ...body, input_reference: file?.name || "reference.file" },
+    responseType: model.binaryResponseType || ""
   };
 }
 
@@ -672,6 +690,14 @@ function formEntries(request) {
   return Object.entries(previewBody(request));
 }
 
+function responseOutputName(request) {
+  const type = request.responseType;
+  if (type === "video") return "freyr-video.mp4";
+  if (type === "audio") return "freyr-audio.mp3";
+  if (type === "image") return "freyr-image.png";
+  return "";
+}
+
 function curlPreview(request) {
   const lines = [
     `curl --request ${request.method || "POST"} \\`,
@@ -689,6 +715,11 @@ function curlPreview(request) {
       const formValue = name === "input_reference" ? `${name}=@${value}` : `${name}=${value}`;
       lines.push(`  --form ${shellQuote(formValue)}`);
     });
+    const outputName = responseOutputName(request);
+    if (outputName) {
+      lines[lines.length - 1] += " \\";
+      lines.push(`  --output ${shellQuote(outputName)}`);
+    }
     return lines.join("\n");
   }
 
@@ -714,7 +745,9 @@ function pythonPreview(request) {
       "try:",
       "    response = requests.post(url, headers=headers, data=data, files=files)",
       "    response.raise_for_status()",
-      "    print(response.json())",
+      responseOutputName(request)
+        ? `    open(${JSON.stringify(responseOutputName(request))}, "wb").write(response.content)`
+        : "    print(response.json())",
       "finally:",
       "    files[\"input_reference\"].close()"
     ].join("\n");
@@ -762,7 +795,9 @@ function typescriptPreview(request) {
       "});",
       "",
       "if (!response.ok) throw new Error(await response.text());",
-      "console.log(await response.json());"
+      responseOutputName(request)
+        ? "console.log(URL.createObjectURL(await response.blob()));"
+        : "console.log(await response.json());"
     );
     return lines.join("\n");
   }
@@ -805,6 +840,10 @@ function updatePlayground() {
   $$("[data-reference-upload]").forEach((field) => {
     const shouldShow = model.category === "video" && model.supportsReference;
     field.hidden = !shouldShow;
+    const referenceInput = $("#referenceImage");
+    const referenceLabel = $("#referenceLabel");
+    if (referenceLabel) referenceLabel.textContent = model.referenceLabel || "Reference image";
+    if (referenceInput) referenceInput.setAttribute("accept", model.referenceAccept || "image/*");
     if (!shouldShow && $("#referenceImage")) $("#referenceImage").value = "";
   });
   $$("[data-reasoning-toggle]").forEach((field) => {
@@ -834,8 +873,22 @@ function updatePlayground() {
 
   if (model.category === "video" && state.lastVideoParamModel !== model.id) {
     const sizeInput = $("#videoSize");
+    const fpsInput = $("#videoFps");
+    const durationInput = $("#videoFrames");
+    const stepsInput = $("#videoSteps");
     if (sizeInput) sizeInput.value = videoDefaultSize(model);
+    if (fpsInput) fpsInput.value = String(videoDefaultFps(model));
+    if (durationInput) durationInput.value = String(videoDefaultDurationValue(model));
+    if (stepsInput) stepsInput.value = String(videoDefaultSteps(model));
     state.lastVideoParamModel = model.id;
+  }
+  const durationLabel = $("#videoDurationLabel");
+  const durationInput = $("#videoFrames");
+  if (durationLabel) durationLabel.textContent = videoDurationLabel(model);
+  if (durationInput) {
+    durationInput.min = model.usesVideoSeconds ? "1" : "1";
+    durationInput.max = model.usesVideoSeconds ? "15" : "160";
+    durationInput.step = "1";
   }
 
   const request = buildRequest();
@@ -1072,7 +1125,7 @@ function publicFileUrl(path) {
 function mediaUrlCandidates(value) {
   if (!value) return [];
   const text = String(value);
-  if (/^data:/i.test(text)) return [text];
+  if (/^(data|blob):/i.test(text)) return [text];
 
   if (/^https?:\/\//i.test(text)) {
     try {
@@ -1121,6 +1174,7 @@ function collectMediaEntries(value, category, key = "", found = []) {
     const keyLower = String(key || "").toLowerCase();
     const looksLikeMedia =
       /^data:(image|audio|video)\//.test(lower)
+      || /^blob:/.test(lower)
       || /^https?:\/\//.test(lower)
       || /\/(v1|outputs)\//.test(lower)
       || /\/files\//.test(lower)
@@ -1187,6 +1241,22 @@ function previewElementMarkup(entry, safeUrl, extraAttrs = "") {
 
 function videoDefaultSize(model) {
   return model?.defaultVideoSize || "512x512";
+}
+
+function videoDefaultFps(model) {
+  return model?.defaultVideoFps || 8;
+}
+
+function videoDefaultDurationValue(model) {
+  return model?.usesVideoSeconds ? model?.defaultVideoSeconds || 4 : model?.defaultVideoFrames || 9;
+}
+
+function videoDefaultSteps(model) {
+  return model?.defaultVideoSteps || 1;
+}
+
+function videoDurationLabel(model) {
+  return model?.usesVideoSeconds ? "Seconds" : "Frames";
 }
 
 function mediaGenerationStatusDetail(json, entries) {
@@ -1256,7 +1326,7 @@ function renderMedia(json, category) {
 }
 
 function cacheBustedUrl(value) {
-  if (/^data:/i.test(value)) return value;
+  if (/^(data|blob):/i.test(value)) return value;
   try {
     const url = new URL(value, mediaBase());
     url.searchParams.set("_freyr_wait", String(Date.now()));
@@ -1327,7 +1397,7 @@ function probeWithElement(entry) {
 }
 
 async function waitForMediaEntry(entry, index, total, statusDetail = "") {
-  if (/^data:/i.test(entry.url) || entry.type === "download") return;
+  if (/^(data|blob):/i.test(entry.url) || entry.type === "download") return;
 
   const startedAt = Date.now();
   let attempt = 1;
@@ -1484,6 +1554,50 @@ async function readStream(response, thinkingRequested = false) {
   return output || reasoning;
 }
 
+function mediaTypeForResponse(response, model) {
+  const contentType = response.headers.get("content-type") || "";
+  const lower = contentType.toLowerCase();
+  if (/json|text\/event-stream/.test(lower)) return "";
+  if (lower.startsWith("image/")) return "image";
+  if (lower.startsWith("audio/")) return "audio";
+  if (lower.startsWith("video/")) return "video";
+  return model.binaryResponseType || "";
+}
+
+function numericResponseHeader(response, name) {
+  const value = Number(response.headers.get(name));
+  return Number.isFinite(value) ? value : null;
+}
+
+function objectWithValues(value) {
+  return Object.keys(value).length ? value : null;
+}
+
+async function binaryMediaJson(response, model, mediaType) {
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const outputSeconds = numericResponseHeader(response, "x-freyr-output-seconds");
+  const usageUnits = numericResponseHeader(response, "x-freyr-usage-units");
+  const totalCost = numericResponseHeader(response, "x-freyr-total-cost");
+  const usage = objectWithValues({
+    type: response.headers.get("x-freyr-usage-type") || mediaType,
+    ...(outputSeconds === null ? {} : { output_seconds: outputSeconds }),
+    ...(usageUnits === null ? {} : { usage_units: usageUnits })
+  });
+  const cost = objectWithValues(totalCost === null ? {} : { total_cost: totalCost });
+
+  return {
+    model: response.headers.get("x-freyr-model") || model.id,
+    freyr_output: {
+      media_type: mediaType,
+      storage: "browser_blob",
+      urls: [url]
+    },
+    ...(usage ? { usage } : {}),
+    ...(cost ? { cost } : {})
+  };
+}
+
 async function runPlayground() {
   if (state.running) return;
   state.headerText = $("#authHeaders")?.value || "";
@@ -1499,7 +1613,7 @@ async function runPlayground() {
   }
 
   if (model.requiresReference && !$("#referenceImage")?.files?.[0]) {
-    setResult("This model requires a reference image. Choose an image file before running the request.");
+    setResult(`This model requires a ${model.referenceLabel || "reference file"}. Choose a file before running the request.`);
     return;
   }
 
@@ -1541,6 +1655,20 @@ async function runPlayground() {
       const output = await readStream(response, thinkingRequested);
       if (!output) setResult("Stream completed without text content.");
       setRunStatus("Complete", "complete");
+      return;
+    }
+
+    const directMediaType = mediaTypeForResponse(response, model);
+    if (directMediaType) {
+      setRunStatus("Preparing preview...", "busy");
+      const json = await binaryMediaJson(response, model, directMediaType);
+      const media = renderMedia(json, model.category);
+      setRunStatus("Complete", "complete");
+      setResult([
+        media ? `<div class="response-copy-source">${media}</div>` : "",
+        usageHtml(json),
+        `<strong>Raw JSON</strong><pre>${escapeHtml(JSON.stringify(json, null, 2))}</pre>`
+      ].filter(Boolean).join(""));
       return;
     }
 
