@@ -6,6 +6,15 @@ const MAX_REFERENCE_DIMENSION = 768;
 const MEDIA_POLL_INTERVAL_MS = 3000;
 const MEDIA_POLL_PROBE_TIMEOUT_MS = 9000;
 const MEDIA_POLL_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+const DEFAULT_VIDEO_SIZE_OPTIONS = [
+  { label: "512x512", value: "512x512" },
+  { label: "352x640", value: "352x640" },
+  { label: "640x352", value: "640x352" },
+  { label: "640x360", value: "640x360" },
+  { label: "768x432", value: "768x432" },
+  { label: "768x512", value: "768x512" },
+  { label: "1280x720", value: "1280x720" }
+];
 
 const MODEL_ID_ALIASES = {
   "MinimaxH3-GB200-117": "MiniMax/MiniMax-H3"
@@ -18,15 +27,24 @@ const MODEL_META = {
     provider: "MiniMax",
     description: "MiniMax H3 video generation model served on the GB200 cluster.",
     capabilities: ["reference-to-video", "image/video/audio reference", "synchronized audio"],
-    sizes: "768x432 default",
+    sizes: "768p / 1080p / 2K",
+    videoSizeOptions: [
+      { label: "768p", value: "1366x768" },
+      { label: "1080p", value: "1920x1080" },
+      { label: "2K", value: "2560x1440" }
+    ],
     supportsReference: true,
     requiresReference: true,
     referenceLabel: "Reference file",
     referenceAccept: "image/*,video/*,audio/*",
-    defaultVideoSize: "768x432",
+    defaultVideoSize: "1366x768",
     defaultVideoFps: 24,
     defaultVideoSeconds: 4,
     defaultVideoSteps: 8,
+    videoSecondsMin: 4,
+    videoSecondsMax: 15,
+    videoStepsMin: 2,
+    videoStepsMax: 20,
     usesVideoSeconds: true,
     binaryResponseType: "video",
     outputSlug: "minimax-h3"
@@ -301,11 +319,16 @@ function normalizeModel(id, priceRow = {}, source = "public model info") {
     context: meta.context,
     sizes: meta.sizes,
     fixedImageSteps: Number.isFinite(meta.fixedImageSteps) ? meta.fixedImageSteps : undefined,
+    videoSizeOptions: Array.isArray(meta.videoSizeOptions) ? meta.videoSizeOptions : undefined,
     defaultVideoSize: meta.defaultVideoSize,
     defaultVideoFps: meta.defaultVideoFps,
     defaultVideoFrames: meta.defaultVideoFrames,
     defaultVideoSeconds: meta.defaultVideoSeconds,
     defaultVideoSteps: meta.defaultVideoSteps,
+    videoSecondsMin: Number.isFinite(meta.videoSecondsMin) ? meta.videoSecondsMin : undefined,
+    videoSecondsMax: Number.isFinite(meta.videoSecondsMax) ? meta.videoSecondsMax : undefined,
+    videoStepsMin: Number.isFinite(meta.videoStepsMin) ? meta.videoStepsMin : undefined,
+    videoStepsMax: Number.isFinite(meta.videoStepsMax) ? meta.videoStepsMax : undefined,
     usesVideoSeconds: Boolean(meta.usesVideoSeconds),
     binaryResponseType: meta.binaryResponseType || "",
     referenceLabel: meta.referenceLabel,
@@ -495,6 +518,11 @@ function numberValue(id, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function boundedNumberValue(id, fallback, min, max) {
+  const value = numberValue(id, fallback);
+  return Math.min(max, Math.max(min, value));
+}
+
 function textValue(id, fallback = "") {
   const value = $(id)?.value;
   return value === undefined || value === "" ? fallback : value;
@@ -604,17 +632,21 @@ function buildImageRequest(model) {
 }
 
 function buildVideoRequest(model) {
+  const durationMin = videoDurationMin(model);
+  const durationMax = videoDurationMax(model);
+  const stepsMin = videoStepsMin(model);
+  const stepsMax = videoStepsMax(model);
   const body = {
     model: model.id,
     prompt: textValue("#promptInput"),
     size: textValue("#videoSize", videoDefaultSize(model)),
     fps: numberValue("#videoFps", videoDefaultFps(model)),
-    num_inference_steps: numberValue("#videoSteps", videoDefaultSteps(model))
+    num_inference_steps: boundedNumberValue("#videoSteps", videoDefaultSteps(model), stepsMin, stepsMax)
   };
   if (model.usesVideoSeconds) {
-    body.seconds = numberValue("#videoFrames", videoDefaultDurationValue(model));
+    body.seconds = boundedNumberValue("#videoFrames", videoDefaultDurationValue(model), durationMin, durationMax);
   } else {
-    body.num_frames = numberValue("#videoFrames", videoDefaultDurationValue(model));
+    body.num_frames = boundedNumberValue("#videoFrames", videoDefaultDurationValue(model), durationMin, durationMax);
   }
   const file = model.supportsReference ? $("#referenceImage")?.files?.[0] : null;
   const shouldUseForm = Boolean(model.supportsReference && (file || model.requiresReference));
@@ -879,6 +911,8 @@ function updatePlayground() {
     }
   }
 
+  if (model.category === "video") renderVideoSizeOptions(model);
+
   if (model.category === "video" && state.lastVideoParamModel !== model.id) {
     const sizeInput = $("#videoSize");
     const fpsInput = $("#videoFps");
@@ -892,11 +926,23 @@ function updatePlayground() {
   }
   const durationLabel = $("#videoDurationLabel");
   const durationInput = $("#videoFrames");
+  const stepsInput = $("#videoSteps");
   if (durationLabel) durationLabel.textContent = videoDurationLabel(model);
   if (durationInput) {
-    durationInput.min = model.usesVideoSeconds ? "1" : "1";
-    durationInput.max = model.usesVideoSeconds ? "15" : "160";
+    const min = videoDurationMin(model);
+    const max = videoDurationMax(model);
+    durationInput.min = String(min);
+    durationInput.max = String(max);
     durationInput.step = "1";
+    durationInput.title = `${videoDurationLabel(model)} must be between ${min} and ${max}.`;
+  }
+  if (stepsInput) {
+    const min = videoStepsMin(model);
+    const max = videoStepsMax(model);
+    stepsInput.min = String(min);
+    stepsInput.max = String(max);
+    stepsInput.step = "1";
+    stepsInput.title = `Steps must be between ${min} and ${max}.`;
   }
 
   const request = buildRequest();
@@ -1251,6 +1297,34 @@ function videoDefaultSize(model) {
   return model?.defaultVideoSize || "512x512";
 }
 
+function videoSizeOptions(model) {
+  const configured = Array.isArray(model?.videoSizeOptions) && model.videoSizeOptions.length
+    ? model.videoSizeOptions
+    : DEFAULT_VIDEO_SIZE_OPTIONS;
+  return configured
+    .map((option) => {
+      if (typeof option === "string") return { label: option, value: option };
+      const value = String(option?.value || "");
+      const label = String(option?.label || value);
+      return value ? { label, value } : null;
+    })
+    .filter(Boolean);
+}
+
+function renderVideoSizeOptions(model) {
+  const select = $("#videoSize");
+  if (!select) return;
+  const options = videoSizeOptions(model);
+  const currentValue = select.value;
+  select.innerHTML = options
+    .map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`)
+    .join("");
+  const defaultValue = videoDefaultSize(model);
+  const hasCurrentValue = options.some((option) => option.value === currentValue);
+  const hasDefaultValue = options.some((option) => option.value === defaultValue);
+  select.value = hasCurrentValue ? currentValue : hasDefaultValue ? defaultValue : options[0]?.value || defaultValue;
+}
+
 function videoDefaultFps(model) {
   return model?.defaultVideoFps || 8;
 }
@@ -1261,6 +1335,26 @@ function videoDefaultDurationValue(model) {
 
 function videoDefaultSteps(model) {
   return model?.defaultVideoSteps || 1;
+}
+
+function finiteOr(value, fallback) {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function videoDurationMin(model) {
+  return model?.usesVideoSeconds ? finiteOr(model.videoSecondsMin, 1) : finiteOr(model?.videoFramesMin, 1);
+}
+
+function videoDurationMax(model) {
+  return model?.usesVideoSeconds ? finiteOr(model.videoSecondsMax, 15) : finiteOr(model?.videoFramesMax, 160);
+}
+
+function videoStepsMin(model) {
+  return finiteOr(model?.videoStepsMin, 1);
+}
+
+function videoStepsMax(model) {
+  return finiteOr(model?.videoStepsMax, 50);
 }
 
 function videoDurationLabel(model) {
