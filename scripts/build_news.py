@@ -75,7 +75,7 @@ class NewsItem:
 
     @property
     def display_date(self) -> str:
-        return self.published.strftime("%B %d, %Y").upper()
+        return self.published.strftime("%d %b %Y")
 
     @property
     def metadata(self) -> dict[str, str]:
@@ -283,7 +283,7 @@ def render_article(item: NewsItem, article_template: Template) -> str:
 def render_archive_card(item: NewsItem) -> str:
     return f"""        <article class="newsArchiveCard">
           <div class="newsCardCopy">
-            <p class="newsDate">{html.escape(item.published.strftime("%Y/%-m/%-d"))}</p>
+            <p class="newsDate">{html.escape(item.published.strftime("%d %b %Y"))}</p>
             <h2><a href="./{html.escape(item.slug, quote=True)}/">{html.escape(item.title)}</a></h2>
             <p class="newsSummary">{html.escape(item.summary)}</p>
             <a class="showMore" href="./{html.escape(item.slug, quote=True)}/"><span aria-hidden="true">›</span> Show More</a>
