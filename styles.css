@@ -199,7 +199,6 @@ img { display: block; max-width: 100%; }
   background: linear-gradient(145deg, #f6f6fa, #e8e8ef);
   text-align: center;
 }
-.capabilityCard:first-child { box-shadow: 17px 22px 33px rgba(15, 20, 50, .24); }
 .capabilityCard > img {
   position: absolute;
   top: -78px;
