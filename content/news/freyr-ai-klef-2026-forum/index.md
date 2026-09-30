@@ -1,7 +1,7 @@
 ---
 title: Freyr AI Shares Insights on AI Data Centre Power and Cooling at KLEF 2026
 slug: freyr-ai-klef-2026-forum
-date: 2026-09-27
+date: 2026-09-23
 category: FORUM
 summary: On 23 September, James SOH, Head of Data Centre at Freyr AI, represented the company at the 3rd Kuala Lumpur Engineering Forum (KLEF 2026), speaking on “APAC AI Data Centre Cooling and Power Technology Trend Insight.”
 cover: APAC-KLEF-2026-represent1.jpg
