@@ -1,4 +1,6 @@
 ---
+# Copy this whole folder into content/news/<YYYY-MM-DD>/ first, where the date
+# folder matches the `date` field below (the builder enforces they agree).
 title: Replace with the news title
 slug: replace-with-a-short-url-slug
 date: 2026-07-23

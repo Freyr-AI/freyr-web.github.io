@@ -18,15 +18,17 @@ The Business menu links Token Platform to
 
 ## Add a news article
 
-1. Copy the complete `content/news/_template/` directory.
-2. Rename the copied directory, for example `new-platform`.
-3. Keep the article at `index.md` and put its cover and content images in that
+1. Copy the complete `content/news/_template/` directory into a date folder
+   named after the publication date, for example
+   `content/news/2026-09-30/new-platform/`.
+2. Keep the article at `index.md` and put its cover and content images in that
    same directory.
-4. Complete the front matter and write the article in Markdown. The `slug`
-   field controls the public article URL independently of the source directory
-   name. Append `#small`, `#medium`, or `#full` to a Markdown image path to
+3. Complete the front matter and write the article in Markdown. The `slug`
+   field sets the article name in the public URL
+   (`news/YYYY-MM-DD/<slug>/`) independently of the source directory
+   path. Append `#small`, `#medium`, or `#full` to a Markdown image path to
    choose a forced responsive width.
-5. Commit the directory to the public repository's `main` branch, directly or
+4. Commit the directory to the public repository's `main` branch, directly or
    through a reviewed pull request.
 
 See [`NEWS_AUTHORING.md`](NEWS_AUTHORING.md) for the editor checklist.

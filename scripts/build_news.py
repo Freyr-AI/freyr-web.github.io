@@ -8,10 +8,11 @@ import html
 import json
 import re
 import shutil
+import subprocess
 from dataclasses import dataclass
 from datetime import date
 from html.parser import HTMLParser
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from string import Template
 from urllib.parse import urlparse
 
@@ -78,6 +79,10 @@ class NewsItem:
         return self.published.strftime("%d %b %Y")
 
     @property
+    def date_segment(self) -> str:
+        return self.published.isoformat()
+
+    @property
     def metadata(self) -> dict[str, str]:
         return {
             "title": self.title,
@@ -86,8 +91,8 @@ class NewsItem:
             "display_date": self.display_date,
             "category": self.category,
             "summary": self.summary,
-            "cover": f"./news/{self.slug}/{self.cover}",
-            "url": f"./news/{self.slug}/",
+            "cover": f"./news/{self.date_segment}/{self.slug}/{self.cover}",
+            "url": f"./news/{self.date_segment}/{self.slug}/",
         }
 
 
@@ -255,6 +260,13 @@ def load_news_item(source: Path) -> NewsItem:
     except ValueError as error:
         raise ValueError(f"{source}: date must use YYYY-MM-DD") from error
 
+    directory_parts = source.parent.relative_to(NEWS_SOURCE).parts
+    if len(directory_parts) == 2 and directory_parts[0] != published.isoformat():
+        raise ValueError(
+            f"{source}: date {published.isoformat()} does not match "
+            f"the directory folder {directory_parts[0]}"
+        )
+
     cover = normalize_asset_filename(source.parent, fields["cover"], "cover")
 
     return NewsItem(
@@ -281,17 +293,36 @@ def render_article(item: NewsItem, article_template: Template) -> str:
 
 
 def render_archive_card(item: NewsItem) -> str:
+    rel = f"{item.date_segment}/{html.escape(item.slug, quote=True)}"
     return f"""        <article class="newsArchiveCard">
           <div class="newsCardCopy">
             <p class="newsDate">{html.escape(item.published.strftime("%d %b %Y"))}</p>
-            <h2><a href="./{html.escape(item.slug, quote=True)}/">{html.escape(item.title)}</a></h2>
+            <h2><a href="./{rel}/">{html.escape(item.title)}</a></h2>
             <p class="newsSummary">{html.escape(item.summary)}</p>
-            <a class="showMore" href="./{html.escape(item.slug, quote=True)}/"><span aria-hidden="true">›</span> Show More</a>
+            <a class="showMore" href="./{rel}/"><span aria-hidden="true">›</span> Show More</a>
           </div>
-          <a class="newsCardImage" href="./{html.escape(item.slug, quote=True)}/">
-            <img src="./{html.escape(item.slug, quote=True)}/{html.escape(item.cover, quote=True)}" alt="{html.escape(item.title, quote=True)}" loading="lazy">
+          <a class="newsCardImage" href="./{rel}/">
+            <img src="./{rel}/{html.escape(item.cover, quote=True)}" alt="{html.escape(item.title, quote=True)}" loading="lazy">
           </a>
         </article>"""
+
+
+def render_redirect(target_url: str) -> str:
+    # Emitted at <root>/news/<old-slug>/index.html (two levels below the site
+    # root), so absolute paths keep the redirect correct at every depth.
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Page moved</title>
+<link rel="canonical" href="{target_url}">
+<meta http-equiv="refresh" content="0;url={target_url}">
+</head>
+<body>
+<p>This article has moved to <a href="{target_url}">{target_url}</a>.</p>
+</body>
+</html>
+"""
 
 
 def build(output_root: Path) -> list[NewsItem]:
@@ -305,11 +336,48 @@ def build(output_root: Path) -> list[NewsItem]:
     for directory in ("about", "business", "investors", "model-list"):
         shutil.copytree(PROJECT_ROOT / directory, output_root / directory)
 
+
+    # Legacy one-level source directories (pre-dated layout) published their
+    # articles at news/<directory-name>/. The migration into date folders used
+    # the front matter slug as the final path segment, so those former directory
+    # names are recovered from origin/main's pre-migration tree rather than kept
+    # as duplicate source folders in the working tree. Only one-level directories
+    # count; a two-level path's parent is a date folder, not an article name.
+    legacy_directory_names: set[str] = set()
+    try:
+        tracked = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", "origin/main",
+             "--", "content/news/"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        for path in tracked.splitlines():
+            parts = PurePosixPath(path).parts
+            if PurePosixPath(path).name == "index.md" and len(parts) == 4:
+                legacy_directory_names.add(parts[-2])
+    except Exception:
+        pass
+    for path in NEWS_SOURCE.glob("*/index.md"):
+        legacy_directory_names.add(path.parent.name)
+
+    # Two-level source layout: content/news/<YYYY-MM-DD>/<slug>/index.md.
+    # A legacy one-level layout content/news/<slug>/index.md is still accepted.
     sources = sorted(
         path
-        for path in NEWS_SOURCE.glob("*/index.md")
-        if not path.parent.name.startswith("_")
+        for path in NEWS_SOURCE.rglob("index.md")
+        if not any(part.startswith("_") for part in path.parent.relative_to(NEWS_SOURCE).parts)
     )
+    legacy_sources = [
+        path for path in sources if len(path.parent.relative_to(NEWS_SOURCE).parts) == 1
+    ]
+    if legacy_sources:
+        print(
+            "WARNING: legacy one-level news layout detected (expected "
+            "content/news/<YYYY-MM-DD>/<slug>/): "
+            + ", ".join(str(path.parent.relative_to(NEWS_SOURCE)) for path in legacy_sources)
+        )
     items = sorted(
         (load_news_item(source) for source in sources),
         key=lambda item: (item.published, item.slug),
@@ -318,13 +386,21 @@ def build(output_root: Path) -> list[NewsItem]:
     slugs = [item.slug for item in items]
     if len(slugs) != len(set(slugs)):
         raise ValueError("News slugs must be unique")
+    urls = [item.metadata["url"] for item in items]
+    if len(urls) != len(set(urls)):
+        raise ValueError("News output URLs must be unique")
 
     homepage = (PROJECT_ROOT / "index.html").read_text(encoding="utf-8")
     for item in items:
-        source_cover = (
-            f"./content/news/{item.source_directory.name}/{item.cover}"
-        )
-        homepage = homepage.replace(source_cover, item.metadata["cover"])
+        source_dir = item.source_directory.relative_to(NEWS_SOURCE)
+        for dir_repr in (str(source_dir), source_dir.name):
+            source_cover = f"./content/news/{dir_repr}/{item.cover}"
+            homepage = homepage.replace(source_cover, item.metadata["cover"])
+    homepage = re.sub(
+        r'\./news/(?!\d{4}-\d{2}-\d{2}/)[a-z0-9]+(?:-[a-z0-9]+)*/',
+        "./news/",
+        homepage,
+    )
     (output_root / "index.html").write_text(homepage, encoding="utf-8")
 
     news_output = output_root / "news"
@@ -337,8 +413,8 @@ def build(output_root: Path) -> list[NewsItem]:
     )
 
     for item in items:
-        article_directory = news_output / item.slug
-        article_directory.mkdir()
+        article_directory = news_output / item.date_segment / item.slug
+        article_directory.mkdir(parents=True)
         for asset in sorted(item.source_directory.iterdir()):
             if asset.is_file() and asset.suffix.lower() in IMAGE_EXTENSIONS:
                 if asset.is_symlink():
@@ -348,6 +424,63 @@ def build(output_root: Path) -> list[NewsItem]:
             render_article(item, article_template),
             encoding="utf-8",
         )
+
+    # Backwards-compatibility: articles were previously published at
+    # news/<slug>/ with the slug as the final URL segment (and, for one early
+    # run, at a dated-alias path). Redirect those legacy links to the canonical
+    # dated location. A redirect is emitted whenever news/<slug>/ is not itself
+    # a live article page, so renamed slugs (e.g. the APAC Finance Forum
+    # article's earlier source-directory-named URL) also keep working.
+    # The source-directory name of each article is also covered as a legacy URL.
+    legacy_urls: dict[str, str] = {}
+    for item in items:
+        target = f"/news/{item.date_segment}/{item.slug}/"
+        legacy_urls.setdefault(f"/news/{item.slug}/", target)
+        # Articles still in the legacy one-level layout keep their source
+        # directory as an alias URL as well (e.g. directory "anshtern-
+        # partnership" with slug "anshtern-alliance").
+        rel_parts = item.source_directory.relative_to(NEWS_SOURCE).parts
+        legacy_names = set(rel_parts)
+        legacy_names.discard(item.slug)
+        for old_name in legacy_directory_names:
+            old_dir = NEWS_SOURCE / old_name
+            if old_dir.is_dir() and any(
+                md.parent.name == rel_parts[-1] for md in old_dir.rglob("index.md")
+            ):
+                legacy_names.add(old_name)
+        for legacy_name in legacy_names:
+            legacy_urls.setdefault(f"/news/{legacy_name}/", target)
+        # Earlier articles embedded the publication date in the slug itself
+        # (news/<short-slug>-YYYY-MM-DD/ is the live URL); cover both the
+        # date-suffixed and date-stripped spellings of every slug.
+        legacy_urls.setdefault(f"/news/{item.slug}-{item.date_segment}/", target)
+        date_stripped = re.sub(rf"-{item.date_segment}$", "", item.slug)
+        legacy_urls.setdefault(f"/news/{date_stripped}/", target)
+        if date_stripped != item.slug:
+            legacy_urls.setdefault(
+                f"/news/{date_stripped}-{item.date_segment}/", target
+            )
+    # Explicit legacy mappings for URLs whose old path cannot be derived from
+    # the current source layout (renamed articles). Maps old path -> new target.
+    redirects_manifest = NEWS_SOURCE / "_redirects.json"
+    if redirects_manifest.is_file():
+        for legacy_dir, redirect_target in json.loads(
+            redirects_manifest.read_text(encoding="utf-8")
+        ).items():
+            if legacy_dir.startswith("_"):
+                continue
+            legacy_urls.setdefault(f"/news/{legacy_dir.strip('/')}/", redirect_target)
+    article_paths = {
+        f"/news/{item.date_segment}/{item.slug}/" for item in items
+    }
+    for legacy_url, target in legacy_urls.items():
+        if legacy_url in article_paths:
+            continue
+        redirect_file = output_root / legacy_url.strip("/") / "index.html"
+        if redirect_file.exists():
+            continue
+        redirect_file.parent.mkdir(parents=True, exist_ok=True)
+        redirect_file.write_text(render_redirect(target), encoding="utf-8")
 
     (news_output / "index.json").write_text(
         json.dumps([item.metadata for item in items], ensure_ascii=False, indent=2) + "\n",

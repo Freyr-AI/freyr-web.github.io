@@ -1,0 +1,6 @@
+{
+  "_comment": "Permanent legacy-URL map: news/<key>/ was live in an earlier build and its target cannot be derived from the current layout (directory/slug renames during the 2026-09-30 dated-URL migration). The builder emits a meta-refresh redirect page for each entry. Add entries here when renaming an article; they must survive the migration.",
+  "freyr-ai-apac-finance-forum-2026": "/news/2026-09-27/freyr-ai-joins-neocloud-financing-discussion-at-apac-finance-forum/",
+  "nvidia-preferred-cloud-partner": "/news/2026-04-15/freyr-technology-ai-renews-nvidia-preferred-cloud-partner-status/",
+  "freyr-ai-anshtern-singapore-partnership": "/news/2026-09-03/freyr-ai-anshtern-singapore-strategic-alliance/"
+}
