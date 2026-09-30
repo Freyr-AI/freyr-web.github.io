@@ -3,7 +3,7 @@ title: "Freyr AI Joins Neocloud Financing Discussion at APAC Finance Forum 2026"
 slug: freyr-ai-joins-neocloud-financing-discussion-at-apac-finance-forum-2026-09-27
 date: 2026-09-27
 category: FORUM
-summary: "Ian Wong, CFA, CFO of Freyr AI, joined industry leaders at The Tech Capital's APAC Finance Forum 2026 in Singapore for a panel discussion on \"The Neocloud Boom: Financing the Next Generation of AI Compute.\""
+summary: "Ian Wong, CFA, CFO of Freyr AI, joined industry leaders at The Tech Capital's APAC Finance Forum 2026 in Singapore for a panel discussion on 'The Neocloud Boom: Financing the Next Generation of AI Compute.'"
 cover: APAC-Finance-Forum-2026-group-photo.jpg
 ---
 
