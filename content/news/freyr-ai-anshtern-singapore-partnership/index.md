@@ -48,9 +48,9 @@ the Global Computing Ecosystem Conference in Q4 2026 in Singapore, convening
 industry leaders, policymakers, and investors to shape the future of AI data
 centers (AIDC) and regional AI policy.
 
-> "Regional collaboration is the cornerstone of scaling AI effectively," said a
-> spokesperson for Freyr AI. "By joining forces with Anshtern Singapore, we are
-> building an integrated infrastructure foundation that empowers businesses
-> across Southeast Asia to innovate faster, more securely, and at scale."
+"Regional collaboration is the cornerstone of scaling AI effectively," said a
+spokesperson for Freyr AI. "By joining forces with Anshtern Singapore, we are
+building an integrated infrastructure foundation that empowers businesses
+across Southeast Asia to innovate faster, more securely, and at scale."
 
 ![Freyr AI and Anshtern Singapore cooperation](./anshtern-cooperation.jpg#full)
