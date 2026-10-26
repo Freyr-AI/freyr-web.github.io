@@ -330,7 +330,7 @@ def build(output_root: Path) -> list[NewsItem]:
         shutil.rmtree(output_root)
     output_root.mkdir(parents=True)
 
-    for filename in ("styles.css", "script.js", "README.md", "CNAME"):
+    for filename in ("styles.css", "script.js", "README.md", "CNAME", "404.html"):
         shutil.copy2(PROJECT_ROOT / filename, output_root / filename)
     shutil.copytree(PROJECT_ROOT / "public", output_root / "public")
     for directory in ("about", "business", "model-list"):
