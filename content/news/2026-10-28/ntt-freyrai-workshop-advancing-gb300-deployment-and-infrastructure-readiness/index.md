@@ -9,6 +9,8 @@ cover: NTT-FreyrAI-Workshop-2026-10-28.jpeg
 
 Freyr AI and NTT Global Data Centers came together with ecosystem partners in Singapore on 20 October 2026 for a technical workshop focused on GB300 deployment and infrastructure readiness. The workshop combined expertise across accelerated computing, data center infrastructure and liquid cooling to advance technical coordination and deployment planning.
 
+🎥 **Watch the workshop highlights video:** [Freyr AI × NTT Global Data Centers on LinkedIn](https://www.linkedin.com/posts/freyrai-nttglobaldatacenters-ncp-ugcPost-7521069494325342208-yYf6/). A video of the workshop is available on the linked page.
+
 Discussions focused on aligning GB300 system requirements with the power, cooling, networking and physical infrastructure needed to support deployment. Participants also examined system integration, commissioning and operational responsibilities, connecting infrastructure design with the practical requirements of delivery and ongoing service.
 
 Through detailed technical exchanges, the teams developed a clearer understanding of key interfaces and dependencies, reviewed site readiness considerations, and identified priorities for further coordination. These discussions established a stronger basis for design refinement and the next stages of implementation.
