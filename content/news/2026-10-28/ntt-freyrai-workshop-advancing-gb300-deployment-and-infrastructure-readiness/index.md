@@ -1,5 +1,5 @@
 ---
-title: "NTT × Freyr AI Workshop: Advancing GB300 Deployment and Infrastructure Readiness"
+title: "Freyr AI x NTT Workshop: Advancing GB300 Deployment and Infrastructure Readiness"
 slug: ntt-freyrai-workshop-advancing-gb300-deployment-and-infrastructure-readiness
 date: 2026-10-28
 category: PARTNER
